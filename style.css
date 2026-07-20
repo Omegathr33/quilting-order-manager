@@ -40,6 +40,8 @@ h1, h2, h3 { margin: 0 0 8px; }
 
 /* ---------------- Login screen ---------------- */
 
+.login-screen[hidden] { display: none; }
+
 .login-screen {
   min-height: 100vh;
   display: flex;
@@ -55,6 +57,7 @@ h1, h2, h3 { margin: 0 0 8px; }
 
 /* ---------------- App shell ---------------- */
 
+.app-shell[hidden] { display: none; }
 .app-shell { display: flex; flex-direction: column; min-height: 100vh; }
 
 .topbar {

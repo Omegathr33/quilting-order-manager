@@ -100,7 +100,7 @@ function showView(name) {
   document.querySelectorAll(".navbtn[data-view]").forEach(function (b) {
     b.classList.toggle("is-active", b.dataset.view === name);
   });
-  if (name === "orders") renderOrders();
+  loadInitialData();
   if (name === "new-order") resetNewOrderForm();
 }
 
