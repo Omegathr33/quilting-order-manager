@@ -12,10 +12,10 @@
 // ---------------------------------------------------------------------
 
 const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY_HERE",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "000000000000",
-  appId: "1:000000000000:web:0000000000000000000000"
+  apiKey: "AIzaSyDTyrvwmLJVRbRdYmBuJ_oK8kGDXoC6rgE",
+  authDomain: "quilting-order-manager.firebaseapp.com",
+  projectId: "quilting-order-manager",
+  storageBucket: "quilting-order-manager.firebasestorage.app",
+  messagingSenderId: "189965643624",
+  appId: "1:189965643624:web:58965002cf51b98c79b0dd"
 };
