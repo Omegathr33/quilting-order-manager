@@ -22,6 +22,7 @@ let currentPricing = DEFAULT_PRICING;
 let allCustomers = [];
 let allOrders = [];
 let allTasks = [];
+let editingOrderSyncId = null;
 
 function uuid4() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -52,6 +53,22 @@ function todayIso() {
 // Auth
 // -----------------------------------------------------------------
 
+function describeAuthError(error) {
+  const code = error && error.code;
+  const messages = {
+    "auth/wrong-password": "That password doesn't match this email.",
+    "auth/user-not-found": "No login exists for that email — check it matches exactly what you created in Firebase.",
+    "auth/invalid-email": "That doesn't look like a valid email address.",
+    "auth/invalid-credential": "That email and password combination wasn't recognized.",
+    "auth/unauthorized-domain": "This page's web address isn't allowed to log in yet. In Firebase: Authentication -> Settings -> Authorized domains -> Add domain, and add this page's address (e.g. yourusername.github.io).",
+    "auth/invalid-api-key": "The Firebase config on this page looks wrong — double-check firebase-config.js against what Firebase shows you.",
+    "auth/network-request-failed": "Couldn't reach Firebase — check your internet connection.",
+    "auth/too-many-requests": "Too many attempts in a row — wait a minute and try again.",
+    "auth/user-disabled": "This login has been disabled in Firebase.",
+  };
+  return messages[code] || ("Couldn't log in (" + (code || "unknown error") + ").");
+}
+
 document.getElementById("loginForm").addEventListener("submit", function (e) {
   e.preventDefault();
   const email = document.getElementById("loginEmail").value.trim();
@@ -62,10 +79,11 @@ document.getElementById("loginForm").addEventListener("submit", function (e) {
   statusEl.textContent = "Logging in...";
   auth.signInWithEmailAndPassword(email, password)
     .then(function () { statusEl.textContent = ""; })
-    .catch(function () {
+    .catch(function (error) {
       statusEl.textContent = "";
-      errorEl.textContent = "Couldn't log in — check your email and password.";
+      errorEl.textContent = describeAuthError(error);
       errorEl.hidden = false;
+      console.error("Login error:", error);
     });
 });
 
@@ -91,7 +109,16 @@ auth.onAuthStateChanged(function (user) {
 // -----------------------------------------------------------------
 
 document.querySelectorAll(".navbtn[data-view]").forEach(function (btn) {
-  btn.addEventListener("click", function () { showView(btn.dataset.view); });
+  btn.addEventListener("click", function () {
+    if (btn.dataset.view === "new-order") {
+      editingOrderSyncId = null;
+      document.getElementById("orderFormTitle").textContent = "New order";
+      showView("new-order");
+      resetNewOrderForm();
+    } else {
+      showView(btn.dataset.view);
+    }
+  });
 });
 
 function showView(name) {
@@ -101,7 +128,64 @@ function showView(name) {
     b.classList.toggle("is-active", b.dataset.view === name);
   });
   loadInitialData();
-  if (name === "new-order") resetNewOrderForm();
+}
+
+function openOrderForEdit(syncId) {
+  const order = allOrders.find(function (o) { return o.sync_id === syncId; });
+  if (!order) return;
+  const customer = allCustomers.find(function (c) { return c.sync_id === order.customer_sync_id; });
+  editingOrderSyncId = syncId;
+  populateDropdowns();
+  fillOrderForm(order, customer);
+  document.getElementById("orderFormTitle").textContent = "Edit order";
+  showView("new-order");
+  recalcTotal();
+}
+
+function fillOrderForm(order, customer) {
+  document.getElementById("customer_sync_id").value = order.customer_sync_id || "";
+  document.getElementById("customer_name").value = customer ? customer.name || "" : "";
+  document.getElementById("customer_address").value = customer ? customer.address || "" : "";
+  document.getElementById("customer_phone").value = customer ? customer.phone || "" : "";
+  document.getElementById("customer_email").value = customer ? customer.email || "" : "";
+  document.getElementById("customerSearch").value = "";
+  document.getElementById("customerSuggestions").innerHTML = "";
+
+  document.getElementById("date_in").value = order.date_in || "";
+  document.getElementById("due_date").value = order.due_date || "";
+
+  document.getElementById("front_fabric_width").value = order.front_fabric_width || "";
+  document.getElementById("front_fabric_height").value = order.front_fabric_height || "";
+  document.getElementById("back_fabric_width").value = order.back_fabric_width || "";
+  document.getElementById("back_fabric_height").value = order.back_fabric_height || "";
+
+  document.getElementById("quilting_design_no_pref").checked = !!order.quilting_design_no_pref;
+  document.getElementById("quilting_design").value = order.quilting_design || "";
+  document.getElementById("quilting_design").disabled = !!order.quilting_design_no_pref;
+  document.getElementById("quilting_size").value = order.quilting_size || "";
+
+  document.getElementById("batting_type").value = order.batting_type || "";
+  document.getElementById("batting_type_no_pref").checked = !!order.batting_type_no_pref;
+  document.getElementById("batting_size").value = order.batting_size || "";
+
+  document.getElementById("top_thread_no_pref").checked = !!order.top_thread_no_pref;
+  document.getElementById("top_thread").value = order.top_thread || "";
+  document.getElementById("top_thread").disabled = !!order.top_thread_no_pref;
+
+  document.getElementById("bottom_thread_same_as_top").checked = !!order.bottom_thread_same_as_top;
+  document.getElementById("bottom_thread").value = order.bottom_thread || "";
+  document.getElementById("bottom_thread").disabled = !!order.bottom_thread_same_as_top;
+
+  document.getElementById("seaming_cost").value = order.seaming_cost || "";
+  document.getElementById("piecing_cost").value = order.piecing_cost || "";
+  document.getElementById("completed_quilt_purchase").value = order.completed_quilt_purchase || "";
+
+  document.getElementById("binding_who").value = order.binding_who || "Customer will do it";
+  document.getElementById("binding_cut_type").value = order.binding_cut_type || "Cross Cut";
+  document.getElementById("binding_color").value = order.binding_color || "";
+  applyBinding();
+
+  document.getElementById("notes").value = order.notes || "";
 }
 
 document.getElementById("syncStatusBtn").addEventListener("click", loadInitialData);
@@ -128,12 +212,14 @@ function loadInitialData() {
   });
 
   db.collection("tasks").get().then(function (snap) {
-    allTasks = snap.docs.map(function (d) { return Object.assign({ sync_id: d.id }, d.data()); });
+    allTasks = snap.docs.map(function (d) { return Object.assign({ sync_id: d.id }, d.data()); })
+      .filter(function (t) { return !t.deleted; });
     renderHome();
   });
 
   db.collection("orders").get().then(function (snap) {
-    allOrders = snap.docs.map(function (d) { return Object.assign({ sync_id: d.id }, d.data()); });
+    allOrders = snap.docs.map(function (d) { return Object.assign({ sync_id: d.id }, d.data()); })
+      .filter(function (o) { return !o.deleted; });
     renderHome();
     renderOrders();
   });
@@ -255,9 +341,14 @@ function renderOrders() {
         '<span>' + money(o.grand_total) + '</span>' +
       '</div>' +
       '<div class="order-card-actions">' +
+        '<button class="btn btn-small btn-secondary" data-edit="' + o.sync_id + '">View / Edit</button>' +
         '<button class="btn btn-small btn-primary" data-complete="' + o.sync_id + '">Mark complete</button>' +
       '</div>';
     list.appendChild(card);
+  });
+
+  list.querySelectorAll("[data-edit]").forEach(function (btn) {
+    btn.addEventListener("click", function () { openOrderForEdit(btn.dataset.edit); });
   });
 
   list.querySelectorAll("[data-complete]").forEach(function (btn) {
@@ -433,9 +524,6 @@ document.getElementById("newOrderForm").addEventListener("submit", function (e) 
       customer_sync_id: customerSyncId,
       date_in: document.getElementById("date_in").value || null,
       due_date: document.getElementById("due_date").value || null,
-      check_out_date: null,
-      status: "Not Started",
-      payment_status: "Unpaid",
       front_fabric_width: num("front_fabric_width"),
       front_fabric_height: num("front_fabric_height"),
       back_fabric_width: num("back_fabric_width"),
@@ -460,10 +548,20 @@ document.getElementById("newOrderForm").addEventListener("submit", function (e) 
       grand_total: calculateGrandTotal(),
       updated_at: now,
     };
-    const orderSyncId = uuid4();
-    return db.collection("orders").doc(orderSyncId).set(orderData);
+
+    if (editingOrderSyncId) {
+      // Editing: leave status, payment_status, and check_out_date exactly as
+      // they are -- this form doesn't show them, so it should never reset a
+      // Completed/Paid order back to Not Started/Unpaid.
+      return db.collection("orders").doc(editingOrderSyncId).update(orderData);
+    }
+    orderData.check_out_date = null;
+    orderData.status = "Not Started";
+    orderData.payment_status = "Unpaid";
+    return db.collection("orders").doc(uuid4()).set(orderData);
   }).then(function () {
-    alert("Order saved.");
+    alert(editingOrderSyncId ? "Order updated." : "Order saved.");
+    editingOrderSyncId = null;
     loadInitialData();
     showView("home");
   }).catch(function () {
